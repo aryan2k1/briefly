@@ -1,0 +1,26 @@
+# Credentials and local user data
+.env
+.env.*
+!.env.example
+.local/
+*.db
+*.sqlite*
+*.log
+*.swp
+.DS_Store
+# Generated dependencies and builds
+node_modules/
+.next/
+dist/
+build/
+.build/
+.gradle/
+.kotlin/
+.wrangler/
+.sites-runtime/
+.vinext/
+*.tsbuildinfo
+__pycache__/
+local.properties
+*.jks
+*.keystore
