@@ -108,7 +108,7 @@ before(async () => {
         "SELECT version FROM schema_migrations ORDER BY version",
       )
     ).rows,
-    [{ version: 1 }, { version: 2 }],
+    [{ version: 1 }, { version: 2 }, { version: 3 }],
   );
   await upgrade.end();
   await migrate(adminUrl.href);
@@ -801,4 +801,154 @@ test("additive history fixtures preserve edits, seed once and expose separate pe
       (m: { actions: unknown[] }) => m.actions.length > 0,
     ),
   );
+});
+
+test("Home layouts are personal, versioned, validated and isolated by organisation and member", async () => {
+  const ed = await login("editor"),
+    vw = await login("viewer"),
+    foreign = await login("other");
+  const blocks = (order: string[], hidden: string[] = []) =>
+    order.map((id) => ({ id, visible: !hidden.includes(id) }));
+  const std = ["upcoming", "myActions", "awaitingNotes", "recent"];
+  const swapped = ["myActions", "upcoming", "awaitingNotes", "recent"];
+  const get = async (a: typeof ed) => {
+    const r = await req("/api/home/layout", "GET", undefined, a);
+    assert.equal(r.status, 200);
+    assert.equal(r.headers.get("cache-control"), "no-store");
+    return r.json();
+  };
+  const patch = (a: typeof ed, data: unknown, extra = {}) =>
+    req("/api/home/layout", "PATCH", data, a, extra);
+  assert.deepEqual(await get(ed), { version: 0, blocks: blocks(std) });
+  assert.equal(
+    (await req("/api/home/layout?x=1", "GET", undefined, ed)).status,
+    400,
+  );
+  assert.equal(
+    (await req("/api/home/layout", "GET", undefined, undefined)).status,
+    401,
+  );
+  // First save creates version 1; a second create from "no layout" is a conflict.
+  const first = await patch(ed, {
+    version: 0,
+    blocks: blocks(swapped, ["recent"]),
+  });
+  assert.equal(first.status, 200);
+  assert.deepEqual(await first.json(), {
+    version: 1,
+    blocks: blocks(swapped, ["recent"]),
+  });
+  assert.equal(
+    (await patch(ed, { version: 0, blocks: blocks(std) })).status,
+    409,
+  );
+  assert.deepEqual(await get(ed), {
+    version: 1,
+    blocks: blocks(swapped, ["recent"]),
+  });
+  // Stale update conflicts and changes nothing; the current version updates once.
+  assert.equal(
+    (await patch(ed, { version: 7, blocks: blocks(std) })).status,
+    409,
+  );
+  assert.equal((await get(ed)).version, 1);
+  const reset = await patch(ed, { version: 1, blocks: blocks(std) });
+  assert.equal(reset.status, 200);
+  assert.equal((await reset.json()).version, 2);
+  // Viewers may personalise their own view only; other members keep theirs.
+  assert.equal(
+    (await patch(vw, { version: 0, blocks: blocks(swapped) })).status,
+    200,
+  );
+  assert.deepEqual(await get(ed), { version: 2, blocks: blocks(std) });
+  assert.deepEqual(await get(vw), { version: 1, blocks: blocks(swapped) });
+  assert.deepEqual(await get(foreign), { version: 0, blocks: blocks(std) });
+  assert.equal(
+    (
+      await patch(foreign, {
+        version: 0,
+        blocks: blocks(["recent", ...std.slice(0, 3)]),
+      })
+    ).status,
+    200,
+  );
+  assert.deepEqual(await get(ed), { version: 2, blocks: blocks(std) });
+  // Direct SQL under each scope sees only that member's row; unscoped reads see none.
+  const { scoped } = await import("../src/lib/server/db.ts");
+  for (const a of [ed, vw, foreign])
+    assert.equal(
+      await scoped(
+        a.session,
+        async (c) =>
+          (await c.query("SELECT count(*)::int AS n FROM home_layouts")).rows[0]
+            .n,
+      ),
+      1,
+    );
+  assert.equal(
+    (await pool.query("SELECT count(*)::int AS n FROM home_layouts")).rows[0].n,
+    0,
+  );
+  assert.equal(
+    await scoped(
+      ed.session,
+      async (c) =>
+        (
+          await c.query(
+            "UPDATE home_layouts SET version=99 WHERE membership_id<>$1",
+            [ed.session.membership.id],
+          )
+        ).rowCount,
+    ),
+    0,
+  );
+  // Invalid payloads, missing CSRF and a foreign Origin are rejected without changing the row.
+  const bad: unknown[] = [
+    {},
+    { version: 2 },
+    { blocks: blocks(std) },
+    { version: -1, blocks: blocks(std) },
+    { version: 1.5, blocks: blocks(std) },
+    { version: 2, blocks: blocks(std).slice(1) },
+    { version: 2, blocks: [...blocks(std), { id: "recent", visible: true }] },
+    {
+      version: 2,
+      blocks: blocks(["upcoming", "upcoming", "recent", "myActions"]),
+    },
+    { version: 2, blocks: blocks([...std.slice(0, 3), "admin"]) },
+    { version: 2, blocks: blocks(std, std) },
+    { version: 2, blocks: blocks(std).map((b) => ({ ...b, visible: "yes" })) },
+    { version: 2, blocks: blocks(std).map((b) => ({ ...b, html: "<b>" })) },
+    { version: 2, blocks: blocks(std), extra: true },
+  ];
+  for (const data of bad)
+    assert.equal((await patch(ed, data)).status, 400, JSON.stringify(data));
+  assert.equal(
+    (
+      await patch(
+        ed,
+        { version: 2, blocks: blocks(swapped) },
+        { "x-csrf-token": "wrong" },
+      )
+    ).status,
+    403,
+  );
+  assert.equal(
+    (
+      await patch(
+        ed,
+        { version: 2, blocks: blocks(swapped) },
+        { origin: "http://evil.example" },
+      )
+    ).status,
+    403,
+  );
+  assert.deepEqual(await get(ed), { version: 2, blocks: blocks(std) });
+  // Two concurrent saves from the same version: exactly one wins.
+  const race = await Promise.all([
+    patch(ed, { version: 2, blocks: blocks(swapped) }),
+    patch(ed, { version: 2, blocks: blocks(std, ["recent"]) }),
+  ]);
+  assert.deepEqual(race.map((r) => r.status).sort(), [200, 409]);
+  assert.equal((await get(ed)).version, 3);
 });

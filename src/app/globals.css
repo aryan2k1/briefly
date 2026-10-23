@@ -1636,3 +1636,18 @@ textarea:focus-visible {
     width: min(315px, 90vw);
   }
 }
+.layout-list {
+  list-style: none;
+  margin: 0 0 12px;
+  padding: 0;
+}
+.layout-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+}
+.layout-row > span {
+  flex: 1 1 12rem;
+}

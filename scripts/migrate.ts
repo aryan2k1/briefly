@@ -10,7 +10,11 @@ export async function migrate(url: string) {
     await client.query(
       "CREATE TABLE IF NOT EXISTS public.schema_migrations(version integer PRIMARY KEY, checksum text NOT NULL, applied_at timestamptz NOT NULL DEFAULT now())",
     );
-    const files = ["001-foundation.sql", "002-meeting-workspace.sql"];
+    const files = [
+      "001-foundation.sql",
+      "002-meeting-workspace.sql",
+      "003-home-layouts.sql",
+    ];
     const existing = await client.query(
       "SELECT version,checksum FROM public.schema_migrations ORDER BY version",
     );

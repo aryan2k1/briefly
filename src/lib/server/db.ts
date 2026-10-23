@@ -20,8 +20,13 @@ export async function scoped<T>(
       repeatableRead ? "BEGIN ISOLATION LEVEL REPEATABLE READ" : "BEGIN",
     );
     await client.query(
-      "SELECT set_config('briefly.org',$1,true),set_config('briefly.team',$2,true),set_config('briefly.role',$3,true)",
-      [actor.organisation.id, actor.membership.teamId, actor.membership.role],
+      "SELECT set_config('briefly.org',$1,true),set_config('briefly.team',$2,true),set_config('briefly.role',$3,true),set_config('briefly.member',$4,true)",
+      [
+        actor.organisation.id,
+        actor.membership.teamId,
+        actor.membership.role,
+        actor.membership.id,
+      ],
     );
     const result = await operation(client);
     await client.query("COMMIT");

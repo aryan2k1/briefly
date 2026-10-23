@@ -1,4 +1,10 @@
-import type { HomeData, HomeMeeting } from "../lib/home-contracts.ts";
+import {
+  homeBlockIds,
+  type HomeData,
+  type HomeLayout,
+  type HomeLayoutBlock,
+  type HomeMeeting,
+} from "../lib/home-contracts.ts";
 function object(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value))
     throw new Error("Home data could not be read. Please retry.");
@@ -34,6 +40,27 @@ function meeting(value: unknown): HomeMeeting {
     startsAt: date(row.startsAt),
     updatedAt: date(row.updatedAt),
   };
+}
+export function parseHomeLayout(value: unknown): HomeLayout {
+  const row = object(value);
+  if (
+    typeof row.version !== "number" ||
+    !Number.isSafeInteger(row.version) ||
+    row.version < 0 ||
+    !Array.isArray(row.blocks) ||
+    row.blocks.length !== homeBlockIds.length
+  )
+    throw new Error("Home layout could not be read. Please retry.");
+  const blocks = row.blocks.map((item): HomeLayoutBlock => {
+    const b = object(item);
+    const id = homeBlockIds.find((known) => known === b.id);
+    if (!id || typeof b.visible !== "boolean")
+      throw new Error("Home layout could not be read. Please retry.");
+    return { id, visible: b.visible };
+  });
+  if (new Set(blocks.map((b) => b.id)).size !== blocks.length)
+    throw new Error("Home layout could not be read. Please retry.");
+  return { version: row.version, blocks };
 }
 export function parseHome(value: unknown): HomeData {
   const row = object(value),

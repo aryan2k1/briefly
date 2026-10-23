@@ -28,6 +28,7 @@ import {
 } from "./meeting-workspace.ts";
 import { simulateOutlook } from "./outlook-demo.ts";
 import { getHome } from "./home.ts";
+import { getHomeLayout, saveHomeLayout } from "./home-layout.ts";
 import { fields } from "./validation.ts";
 async function body(request: Request): Promise<unknown> {
   if (!request.headers.get("content-type")?.startsWith("application/json"))
@@ -102,6 +103,13 @@ export async function handle(request: Request): Promise<Response> {
         throw new AppError(400, "Home does not accept filters");
       return reply(await getHome(actor));
     }
+    if (path === "/api/home/layout" && method === "GET") {
+      if (url.searchParams.size)
+        throw new AppError(400, "Home layout does not accept filters");
+      return reply(await getHomeLayout(actor));
+    }
+    if (path === "/api/home/layout" && method === "PATCH")
+      return reply(await saveHomeLayout(actor, await body(request)));
     if (path === "/api/integrations/outlook/simulate" && method === "POST") {
       fields(await body(request), []);
       return reply(await simulateOutlook(actor));
